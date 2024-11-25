@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 CMakeFiles/find_keypoints.dir/find_keypoints.cpp.o -o ../../bin/find_keypoints  ../src/libimg.a ../src/libsift.a ../src/libimg.a ../src/libstb_image.a 
