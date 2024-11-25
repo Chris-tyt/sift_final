@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 CMakeFiles/match_features.dir/match_features.cpp.o -o ../../bin/match_features  ../src/libimg.a ../src/libsift.a ../src/libimg.a ../src/libstb_image.a 

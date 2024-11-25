@@ -1,0 +1,11 @@
+/global/homes/c/chris_yt/final/sift-cpp/bulid/CMakeFiles/rebuild_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/CMakeFiles/edit_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/src/CMakeFiles/edit_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/src/CMakeFiles/sift.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/src/CMakeFiles/img.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/src/CMakeFiles/rebuild_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/src/CMakeFiles/stb_image.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/examples/CMakeFiles/rebuild_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/examples/CMakeFiles/edit_cache.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/examples/CMakeFiles/match_features.dir
+/global/homes/c/chris_yt/final/sift-cpp/bulid/examples/CMakeFiles/find_keypoints.dir
