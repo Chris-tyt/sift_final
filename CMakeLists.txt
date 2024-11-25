@@ -8,5 +8,7 @@ set(CMAKE_CXX_FLAGS "-O3")
 
 project(sift_cpp LANGUAGES CXX)
 
+find_package(OpenMP REQUIRED)
+
 add_subdirectory(src)
 add_subdirectory(examples)
