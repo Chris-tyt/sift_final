@@ -492,6 +492,7 @@ std::vector<std::pair<int, int>> find_keypoint_matches(std::vector<Keypoint>& a,
 
     std::vector<std::pair<int, int>> matches;
 
+    #pragma omp parallel for
     for (int i = 0; i < a.size(); i++) {
         // find two nearest neighbours in b for current keypoint from a
         int nn1_idx = -1;
@@ -507,6 +508,7 @@ std::vector<std::pair<int, int>> find_keypoint_matches(std::vector<Keypoint>& a,
             }
         }
         if (nn1_dist < thresh_relative*nn2_dist && nn1_dist < thresh_absolute) {
+            #pragma omp critical
             matches.push_back({i, nn1_idx});
         }
     }

@@ -19,4 +19,5 @@ add_library(sift STATIC
 
 target_link_libraries(sift PRIVATE
                       img
+                      OpenMP::OpenMP_CXX
 )
