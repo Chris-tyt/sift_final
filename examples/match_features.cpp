@@ -109,8 +109,43 @@ int main(int argc, char *argv[])
     std::sort(matches_count.begin(), matches_count.end(), std::greater<>());
 
     std::cout << "\nFinal results:" << std::endl;
-    for (const auto& [count, path] : matches_count) {
+    int output_limit = std::min(3, static_cast<int>(matches_count.size()));
+    for (int i = 0; i < output_limit; ++i) {
+        const auto& [count, path] = matches_count[i];
         std::cout << "Image: " << path << " - Matches: " << count << std::endl;
+
+        // Reload the image to draw matches
+        Image img(path);
+        img = img.channels == 1 ? img : rgb_to_grayscale(img);
+
+        // Find keypoints and descriptors again
+        std::vector<sift::Keypoint> kps = sift::find_keypoints_and_descriptors(img);
+
+        // Draw matches
+        std::vector<std::pair<int, int>> matches = sift::find_keypoint_matches(base_kps, kps);
+        Image result = sift::draw_matches(base_image, img, base_kps, kps, matches);
+
+        // Save result image
+        std::string result_filename = "./res/result_" + std::to_string(i + 1) + ".jpg";
+        result.save(result_filename);
+        std::cout << "Result image saved as " << result_filename << std::endl;
+
+        // Save coordinates of matching keypoints for the most matching image
+        if (i == 0) {
+            std::ofstream coord_file("./res/matching_coordinates.txt");
+            if (coord_file.is_open()) {
+                for (const auto& match : matches) {
+                    const auto& base_kp = base_kps[match.first];
+                    const auto& img_kp = kps[match.second];
+                    coord_file << "Base Image: (" << base_kp.x << ", " << base_kp.y << ") "
+                               << "Matched Image: (" << img_kp.x << ", " << img_kp.y << ")\n";
+                }
+                coord_file.close();
+                std::cout << "Matching coordinates saved to ./res/matching_coordinates.txt" << std::endl;
+            } else {
+                std::cerr << "Failed to open file for writing matching coordinates." << std::endl;
+            }
+        }
     }
 
     // 计算并输出总处理时间
