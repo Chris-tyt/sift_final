@@ -3,8 +3,8 @@
 # Define the paths for the list files and match data folders
 list_file1="res/matching_list.txt"
 list_file2="res/matching_list2.txt"
-match_data_folder1="res/match_data.txt"
-match_data_folder2="res/match_data2.txt"
+match_data_folder1="res/matching_coordinates.txt"
+match_data_folder2="res/matching_coordinates2.txt"
 
 # Output message for verifying list files
 echo "Verifying list files..."

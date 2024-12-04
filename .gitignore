@@ -3,3 +3,4 @@ data/list.txt
 build/
 bin/
 res/*
+!res/readme.md

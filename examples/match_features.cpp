@@ -113,13 +113,15 @@ int main(int argc, char *argv[])
     std::cout << "\nWriting results to " << output_filename << "..." << std::endl;
     for (const auto& [count, path] : matches_count) {
         output_file << path << " " << count << "\n";
-        std::cout << "Image: " << path << " - Matches: " << count << std::endl;
         }
     output_file.close();
+    std::cout << "Writing matching_list finished." << std::endl;
+
 
     int output_limit = std::min(3, static_cast<int>(matches_count.size()));
     for (int i = 0; i < output_limit; ++i) {
         const auto& [count, path] = matches_count[i];
+        std::cout << "Save Image: " << path << " - Matches: " << count << std::endl;
 
         // Reload the image to draw matches
         Image img(path);
