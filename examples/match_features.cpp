@@ -109,8 +109,25 @@ int main(int argc, char *argv[])
     std::sort(matches_count.begin(), matches_count.end(), std::greater<>());
 
     std::cout << "\nFinal results:" << std::endl;
-    for (const auto& [count, path] : matches_count) {
+    int output_limit = std::min(3, static_cast<int>(matches_count.size()));
+    for (int i = 0; i < output_limit; ++i) {
+        const auto& [count, path] = matches_count[i];
         std::cout << "Image: " << path << " - Matches: " << count << std::endl;
+
+        // 重新加载图像以绘制匹配
+        Image img(path);
+        img = img.channels == 1 ? img : rgb_to_grayscale(img);
+
+        // 再次查找关键点和描述符
+        std::vector<sift::Keypoint> kps = sift::find_keypoints_and_descriptors(img);
+
+        // 绘制匹配
+        Image result = sift::draw_matches(base_image, img, base_kps, kps, sift::find_keypoint_matches(base_kps, kps));
+
+        // 保存结果图像
+        std::string result_filename = "./res/result_" + std::to_string(i + 1) + ".jpg";
+        result.save(result_filename);
+        std::cout << "Result image saved as " << result_filename << std::endl;
     }
 
     // 计算并输出总处理时间
