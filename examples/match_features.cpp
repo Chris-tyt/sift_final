@@ -13,23 +13,17 @@ int main(int argc, char *argv[])
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(NULL);
 
-    if (argc != 2) {
-        std::cerr << "Usage: ./match_features list.txt\n";
-        return 0;
-    }
-
-    std::cout << "Opening list file: " << argv[1] << std::endl;
-    std::ifstream file(argv[1]);
+    const char* input_path = "data/list.txt";
+    std::cout << "Opening list file: " << input_path << std::endl;
+    std::ifstream file(input_path);
     if (!file.is_open()) {
-        std::cerr << "Failed to open file: " << argv[1] << "\n";
+        std::cerr << "Failed to open file: " << input_path << "\n";
         return 1;
     }
     std::cout << "Successfully opened list file" << std::endl;
 
     // Get the directory path of the list file
-    std::string list_dir = std::string(argv[1]);
-    size_t last_slash = list_dir.find_last_of("/\\");
-    list_dir = (last_slash != std::string::npos) ? list_dir.substr(0, last_slash + 1) : "";
+    std::string list_dir = "data/";
 
     std::cout << "Reading base image path..." << std::endl;
     std::string base_image_path;
@@ -108,11 +102,26 @@ int main(int argc, char *argv[])
     std::cout << "\nSorting results by number of matches..." << std::endl;
     std::sort(matches_count.begin(), matches_count.end(), std::greater<>());
 
-    std::cout << "\nFinal results:" << std::endl;
+    // Write results to file
+    std::string output_filename = "res/matching_list.txt";
+    std::ofstream output_file(output_filename);
+    if (!output_file.is_open()) {
+        std::cerr << "Failed to create output file: " << output_filename << std::endl;
+        return 1;
+    }
+
+    std::cout << "\nWriting results to " << output_filename << "..." << std::endl;
+    for (const auto& [count, path] : matches_count) {
+        output_file << path << " " << count << "\n";
+        }
+    output_file.close();
+    std::cout << "Writing matching_list finished." << std::endl;
+
+
     int output_limit = std::min(3, static_cast<int>(matches_count.size()));
     for (int i = 0; i < output_limit; ++i) {
         const auto& [count, path] = matches_count[i];
-        std::cout << "Image: " << path << " - Matches: " << count << std::endl;
+        std::cout << "Save Image: " << path << " - Matches: " << count << std::endl;
 
         // Reload the image to draw matches
         Image img(path);
