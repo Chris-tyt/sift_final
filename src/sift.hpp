@@ -65,15 +65,31 @@ ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid);
 std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid,
                                      float contrast_thresh=C_DOG, float edge_thresh=C_EDGE);
 
+std::vector<Keypoint> find_keypoints_omp(const ScaleSpacePyramid& dog_pyramid,
+                                     float contrast_thresh=C_DOG, float edge_thresh=C_EDGE);
+
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid);
 
+ScaleSpacePyramid generate_gradient_pyramid_omp(const ScaleSpacePyramid& pyramid);
+
 std::vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
+                                              float lambda_ori=LAMBDA_ORI, float lambda_desc=LAMBDA_DESC);
+
+std::vector<float> find_keypoint_orientations_omp(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
                                               float lambda_ori=LAMBDA_ORI, float lambda_desc=LAMBDA_DESC);
 
 void compute_keypoint_descriptor(Keypoint& kp, float theta, const ScaleSpacePyramid& grad_pyramid,
                                  float lambda_desc=LAMBDA_DESC);
 
 std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_min=SIGMA_MIN,
+                                                     int num_octaves=N_OCT, 
+                                                     int scales_per_octave=N_SPO, 
+                                                     float contrast_thresh=C_DOG,
+                                                     float edge_thresh=C_EDGE,
+                                                     float lambda_ori=LAMBDA_ORI,
+                                                     float lambda_desc=LAMBDA_DESC);
+
+std::vector<Keypoint> find_keypoints_and_descriptors_omp(const Image& img, float sigma_min=SIGMA_MIN,
                                                      int num_octaves=N_OCT, 
                                                      int scales_per_octave=N_SPO, 
                                                      float contrast_thresh=C_DOG,

@@ -1,10 +1,4 @@
-# 删除 find_keypoints 的编译
-# add_executable(find_keypoints find_keypoints.cpp)
-# target_include_directories(find_keypoints PRIVATE ../src)
-# target_link_libraries(find_keypoints PRIVATE img sift)
-
-# 将 match_features 改名为 sift_test
-add_executable(sift_test match_features.cpp)
+add_executable(sift_test sift_test.cpp)
 
 target_include_directories(sift_test PRIVATE ../src)
 
