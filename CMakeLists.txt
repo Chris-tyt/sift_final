@@ -6,9 +6,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_CXX_FLAGS "-O3")
 
-project(sift_cpp LANGUAGES CXX)
+project(sift_cpp LANGUAGES CXX CUDA)
 
 find_package(OpenMP REQUIRED)
+find_package(CUDA REQUIRED)
 
 add_subdirectory(src)
 add_subdirectory(examples)

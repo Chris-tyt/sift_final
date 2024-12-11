@@ -1,20 +1,26 @@
-add_executable(find_keypoints find_keypoints.cpp)
+# 删除 find_keypoints 的编译
+# add_executable(find_keypoints find_keypoints.cpp)
+# target_include_directories(find_keypoints PRIVATE ../src)
+# target_link_libraries(find_keypoints PRIVATE img sift)
 
-target_include_directories(find_keypoints PRIVATE ../src)
+# 将 match_features 改名为 sift_test
+add_executable(sift_test match_features.cpp)
 
-target_link_libraries(find_keypoints PRIVATE
+target_include_directories(sift_test PRIVATE ../src)
+
+target_link_libraries(sift_test PRIVATE
                       img
                       sift
 )
 
-add_executable(match_features match_features.cpp)
+# 添加 gpu.cu 的编译
+add_executable(gpu_executable cuda_test.cpp)
 
-target_include_directories(match_features PRIVATE ../src)
+# 链接 CUDA 库
+target_link_libraries(gpu_executable PRIVATE gpu)
 
-target_link_libraries(match_features PRIVATE
-                      img
-                      sift
-)
+# 包含头文件路径（如需要）
+# target_include_directories(gpu_executable PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-SET_TARGET_PROPERTIES(find_keypoints PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
-SET_TARGET_PROPERTIES(match_features PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+SET_TARGET_PROPERTIES(sift_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+SET_TARGET_PROPERTIES(gpu_executable PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
