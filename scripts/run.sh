@@ -10,7 +10,7 @@ image_num=3
 
 # Run the script bin/match_festures, passing mode and image_num as parameters
 if [ "$image_num" -ne 0 ]; then
-    bin/match_features "$mode" "$image_num"
+    bin/sift_test "$mode" "$image_num"
 else
-    bin/match_features "$mode"
+    bin/sift_test "$mode"
 fi
