@@ -243,6 +243,37 @@ std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid, float
     return keypoints;
 }
 
+std::vector<Keypoint> find_keypoints_omp(const ScaleSpacePyramid& dog_pyramid, float contrast_thresh, float edge_thresh)
+{
+    std::vector<Keypoint> keypoints;
+    #pragma omp parallel for
+    for (int i = 0; i < dog_pyramid.num_octaves; i++) {
+        const std::vector<Image>& octave = dog_pyramid.octaves[i];
+        std::vector<Keypoint> local_keypoints;
+        for (int j = 1; j < dog_pyramid.imgs_per_octave-1; j++) {
+            const Image& img = octave[j];
+            for (int x = 1; x < img.width-1; x++) {
+                for (int y = 1; y < img.height-1; y++) {
+                    if (std::abs(img.get_pixel(x, y, 0)) < 0.8*contrast_thresh) {
+                        continue;
+                    }
+                    if (point_is_extremum(octave, j, x, y)) {
+                        Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
+                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
+                        if (kp_is_valid) {
+                            local_keypoints.push_back(kp);
+                        }
+                    }
+                }
+            }
+        }
+        #pragma omp critical
+        keypoints.insert(keypoints.end(), local_keypoints.begin(), local_keypoints.end());
+    }
+    return keypoints;
+}
+
+
 // calculate x and y derivatives for all images in the input pyramid
 ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
 {
@@ -265,6 +296,35 @@ ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
                     grad.set_pixel(x, y, 0, gx);
                     gy = (pyramid.octaves[i][j].get_pixel(x, y+1, 0)
                          -pyramid.octaves[i][j].get_pixel(x, y-1, 0)) * 0.5;
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+            grad_pyramid.octaves[i].push_back(grad);
+        }
+    }
+    return grad_pyramid;
+}
+
+ScaleSpacePyramid generate_gradient_pyramid_omp(const ScaleSpacePyramid& pyramid)
+{
+    ScaleSpacePyramid grad_pyramid = {
+        pyramid.num_octaves,
+        pyramid.imgs_per_octave,
+        std::vector<std::vector<Image>>(pyramid.num_octaves)
+    };
+    #pragma omp parallel for
+    for (int i = 0; i < pyramid.num_octaves; i++) {
+        grad_pyramid.octaves[i].reserve(grad_pyramid.imgs_per_octave);
+        int width = pyramid.octaves[i][0].width;
+        int height = pyramid.octaves[i][0].height;
+        for (int j = 0; j < pyramid.imgs_per_octave; j++) {
+            Image grad(width, height, 2);
+            float gx, gy;
+            for (int x = 1; x < grad.width-1; x++) {
+                for (int y = 1; y < grad.height-1; y++) {
+                    gx = (pyramid.octaves[i][j].get_pixel(x+1, y, 0) - pyramid.octaves[i][j].get_pixel(x-1, y, 0)) * 0.5;
+                    grad.set_pixel(x, y, 0, gx);
+                    gy = (pyramid.octaves[i][j].get_pixel(x, y+1, 0) - pyramid.octaves[i][j].get_pixel(x, y-1, 0)) * 0.5;
                     grad.set_pixel(x, y, 1, gy);
                 }
             }
@@ -349,6 +409,65 @@ std::vector<float> find_keypoint_orientations(Keypoint& kp,
     }
     return orientations;
 }
+
+
+std::vector<float> find_keypoint_orientations_omp(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid, float lambda_ori, float lambda_desc)
+{
+    float pix_dist = MIN_PIX_DIST * std::pow(2, kp.octave);
+    const Image& img_grad = grad_pyramid.octaves[kp.octave][kp.scale];
+
+    // discard kp if too close to image borders 
+    float min_dist_from_border = std::min({kp.x, kp.y, pix_dist*img_grad.width-kp.x, pix_dist*img_grad.height-kp.y});
+    if (min_dist_from_border <= std::sqrt(2)*lambda_desc*kp.sigma) {
+        return {};
+    }
+
+    float hist[N_BINS] = {};
+    int bin;
+    float gx, gy, grad_norm, weight, theta;
+    float patch_sigma = lambda_ori * kp.sigma;
+    float patch_radius = 3 * patch_sigma;
+    int x_start = std::round((kp.x - patch_radius)/pix_dist);
+    int x_end = std::round((kp.x + patch_radius)/pix_dist);
+    int y_start = std::round((kp.y - patch_radius)/pix_dist);
+    int y_end = std::round((kp.y + patch_radius)/pix_dist);
+
+    // accumulate gradients in orientation histogram
+    #pragma omp parallel for reduction(+:hist[:N_BINS])
+    for (int x = x_start; x <= x_end; x++) {
+        for (int y = y_start; y <= y_end; y++) {
+            gx = img_grad.get_pixel(x, y, 0);
+            gy = img_grad.get_pixel(x, y, 1);
+            grad_norm = std::sqrt(gx*gx + gy*gy);
+            weight = std::exp(-(std::pow(x*pix_dist-kp.x, 2)+std::pow(y*pix_dist-kp.y, 2))/(2*patch_sigma*patch_sigma));
+            theta = std::fmod(std::atan2(gy, gx)+2*M_PI, 2*M_PI);
+            bin = (int)std::round(N_BINS/(2*M_PI)*theta) % N_BINS;
+            hist[bin] += weight * grad_norm;
+        }
+    }
+
+    smooth_histogram(hist);
+
+    // extract reference orientations
+    float ori_thresh = 0.8, ori_max = 0;
+    std::vector<float> orientations;
+    for (int j = 0; j < N_BINS; j++) {
+        if (hist[j] > ori_max) {
+            ori_max = hist[j];
+        }
+    }
+    for (int j = 0; j < N_BINS; j++) {
+        if (hist[j] >= ori_thresh * ori_max) {
+            float prev = hist[(j-1+N_BINS)%N_BINS], next = hist[(j+1)%N_BINS];
+            if (prev > hist[j] || next > hist[j])
+                continue;
+            float theta = 2*M_PI*(j+1)/N_BINS + M_PI/N_BINS*(prev-next)/(prev-2*hist[j]+next);
+            orientations.push_back(theta);
+        }
+    }
+    return orientations;
+}
+
 
 void update_histograms(float hist[N_HIST][N_HIST][N_ORI], float x, float y,
                        float contrib, float theta_mn, float lambda_desc)
@@ -472,6 +591,48 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     }
     return kps;
 }
+
+std::vector<Keypoint> find_keypoints_and_descriptors_omp(const Image& img, float sigma_min,
+                                                         int num_octaves, int scales_per_octave, 
+                                                         float contrast_thresh, float edge_thresh, 
+                                                         float lambda_ori, float lambda_desc)
+{
+    assert(img.channels == 1 || img.channels == 3);
+
+    const Image& input = img.channels == 1 ? img : rgb_to_grayscale(img);
+    ScaleSpacePyramid gaussian_pyramid = generate_gaussian_pyramid(input, sigma_min, num_octaves,
+                                                                   scales_per_octave);
+    ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(gaussian_pyramid);
+    // std::vector<Keypoint> tmp_kps = find_keypoints(dog_pyramid, contrast_thresh, edge_thresh);
+    std::vector<Keypoint> tmp_kps = find_keypoints_omp(dog_pyramid, contrast_thresh, edge_thresh);
+    // ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid(gaussian_pyramid);
+    ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_omp(gaussian_pyramid);
+    
+    std::vector<Keypoint> kps;
+
+    // Parallelize the keypoint descriptor computation
+    #pragma omp parallel
+    {
+        std::vector<Keypoint> local_kps;
+        #pragma omp for nowait
+        for (size_t i = 0; i < tmp_kps.size(); ++i) {
+            Keypoint& kp_tmp = tmp_kps[i];
+            // std::vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid,
+            //                                                              lambda_ori, lambda_desc);
+            std::vector<float> orientations = find_keypoint_orientations_omp(kp_tmp, grad_pyramid,
+                                                                              lambda_ori, lambda_desc);
+            for (float theta : orientations) {
+                Keypoint kp = kp_tmp;
+                compute_keypoint_descriptor(kp, theta, grad_pyramid, lambda_desc);
+                local_kps.push_back(kp);
+            }
+        }
+        // Merge local keypoints into the global vector
+        #pragma omp critical
+        kps.insert(kps.end(), local_kps.begin(), local_kps.end());
+    }
+    return kps;
+} 
 
 float euclidean_dist(std::array<uint8_t, 128>& a, std::array<uint8_t, 128>& b)
 {
