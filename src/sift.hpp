@@ -107,5 +107,7 @@ Image draw_keypoints(const Image& img, const std::vector<Keypoint>& kps);
 Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
                    std::vector<Keypoint>& kps_b, std::vector<std::pair<int, int>> matches);
 
+ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid);
+
 } // namespace sift
 #endif

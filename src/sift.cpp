@@ -308,6 +308,8 @@ ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid)
     return grad_pyramid;
 }
 
+
+
 ScaleSpacePyramid generate_gradient_pyramid_omp(const ScaleSpacePyramid& pyramid)
 {
     ScaleSpacePyramid grad_pyramid = {
@@ -691,6 +693,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors_omp(const Image& img, float
     // Generate gradient pyramid
     auto grad_start = std::chrono::high_resolution_clock::now();
     ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_omp(gaussian_pyramid);
+    // ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_cuda(gaussian_pyramid);
     auto grad_end = std::chrono::high_resolution_clock::now();
     auto grad_duration = std::chrono::duration_cast<std::chrono::duration<double>>(grad_end - grad_start).count();
     std::cout << "Generate gradient pyramid: " << grad_duration << "s\n";

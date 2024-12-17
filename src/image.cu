@@ -4,8 +4,9 @@
 #include <utility>
 #include <vector>
 
-
+#include "sift.hpp"
 #include "image.hpp"
+
 
 
 __global__ void gaussian_blur_horizontal(float* input, float* output, float* kernel,
@@ -98,3 +99,73 @@ Image gaussian_blur_cuda(const Image& img, float sigma)
     
     return result;
 } 
+
+
+__global__ void compute_gradient_kernel(const float *input, float *output, int width, int height)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
+        float gx = 0.5f * (input[y*width + (x+1)] - input[y*width + (x-1)]);
+        float gy = 0.5f * (input[(y+1)*width + x] - input[(y-1)*width + x]);
+
+        // output前一半存gx，后一半存gy
+        output[y*width + x] = gx;  
+        output[width*height + y*width + x] = gy;
+    } else if (x < width && y < height) {
+        // 边界处可设为0或保持默认值
+        output[y*width + x] = 0.0f;
+        output[width*height + y*width + x] = 0.0f;
+    }
+}
+
+namespace sift {
+
+ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid)
+{
+    ScaleSpacePyramid grad_pyramid = {
+        pyramid.num_octaves,
+        pyramid.imgs_per_octave,
+        std::vector<std::vector<Image>>(pyramid.num_octaves)
+    };
+
+    // 为每张图像分配GPU内存进行处理
+    for (int i = 0; i < pyramid.num_octaves; i++) {
+        grad_pyramid.octaves[i].reserve(pyramid.imgs_per_octave);
+        for (int j = 0; j < pyramid.imgs_per_octave; j++) {
+            const Image& in_img = pyramid.octaves[i][j];
+            int width = in_img.width;
+            int height = in_img.height;
+            assert(in_img.channels == 1);
+
+            Image grad(width, height, 2);
+
+            float *d_input, *d_output;
+            size_t img_size = width * height * sizeof(float);
+            cudaMalloc(&d_input, img_size);
+            cudaMalloc(&d_output, img_size * 2); // 两个通道
+
+            // 复制输入数据到GPU
+            cudaMemcpy(d_input, in_img.data, img_size, cudaMemcpyHostToDevice);
+
+            dim3 block(16,16);
+            dim3 grid((width + block.x - 1)/block.x, (height + block.y - 1)/block.y);
+
+            compute_gradient_kernel<<<grid, block>>>(d_input, d_output, width, height);
+            cudaDeviceSynchronize();
+
+            // 拷贝结果回CPU
+            cudaMemcpy(grad.data, d_output, img_size*2, cudaMemcpyDeviceToHost);
+
+            // 释放GPU内存
+            cudaFree(d_input);
+            cudaFree(d_output);
+
+            grad_pyramid.octaves[i].push_back(grad);
+        }
+    }
+
+    return grad_pyramid;
+}
+} // namespace sift
