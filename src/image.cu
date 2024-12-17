@@ -120,6 +120,14 @@ __global__ void compute_gradient_kernel(const float *input, float *output, int w
     }
 }
 
+
+__global__ void dog_kernel(const float* img1, const float* img2, float* out, int pixels) {
+    int idx = blockIdx.x*blockDim.x+threadIdx.x;
+    if (idx < pixels) {
+        out[idx] = img2[idx]-img1[idx];
+    }
+}
+
 namespace sift {
 
 ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid)
@@ -149,7 +157,7 @@ ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyrami
             // 复制输入数据到GPU
             cudaMemcpy(d_input, in_img.data, img_size, cudaMemcpyHostToDevice);
 
-            dim3 block(16,16);
+            dim3 block(32,8);
             dim3 grid((width + block.x - 1)/block.x, (height + block.y - 1)/block.y);
 
             compute_gradient_kernel<<<grid, block>>>(d_input, d_output, width, height);
@@ -167,5 +175,50 @@ ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyrami
     }
 
     return grad_pyramid;
+}
+
+
+
+ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr) {
+    ScaleSpacePyramid dog_pyr = {
+        gauss_pyr.num_octaves,
+        gauss_pyr.imgs_per_octave - 1,
+        std::vector<std::vector<Image>>(gauss_pyr.num_octaves)
+    };
+
+    for(int i=0; i<gauss_pyr.num_octaves; i++){
+        dog_pyr.octaves[i].reserve(dog_pyr.imgs_per_octave);
+        for (int j=1; j<gauss_pyr.imgs_per_octave; j++){
+            const Image& img1 = gauss_pyr.octaves[i][j-1];
+            const Image& img2 = gauss_pyr.octaves[i][j];
+            assert(img1.channels == 1 && img2.channels == 1);
+            assert(img1.width == img2.width && img1.height == img2.height);
+
+            int pixels = img1.width * img1.height;
+            size_t sz = pixels*sizeof(float);
+            float *d_img1, *d_img2, *d_out;
+            cudaMalloc(&d_img1, sz);
+            cudaMalloc(&d_img2, sz);
+            cudaMalloc(&d_out, sz);
+
+            cudaMemcpy(d_img1, img1.data, sz, cudaMemcpyHostToDevice);
+            cudaMemcpy(d_img2, img2.data, sz, cudaMemcpyHostToDevice);
+
+            dim3 block(256);
+            dim3 grid((pixels+255)/256);
+            dog_kernel<<<grid,block>>>(d_img1,d_img2,d_out,pixels);
+            cudaDeviceSynchronize();
+
+            Image diff(img1.width, img1.height, 1);
+            cudaMemcpy(diff.data, d_out, sz, cudaMemcpyDeviceToHost);
+
+            dog_pyr.octaves[i].push_back(diff);
+
+            cudaFree(d_img1);
+            cudaFree(d_img2);
+            cudaFree(d_out);
+        }
+    }
+    return dog_pyr;
 }
 } // namespace sift

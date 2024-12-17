@@ -10,7 +10,6 @@
 
 #include "sift.hpp"
 #include "image.hpp"
-#include "image_cu.h"
 
 
 namespace sift {
@@ -23,8 +22,7 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min,
     float base_sigma = sigma_min / MIN_PIX_DIST;
     Image base_img = img.resize(img.width*2, img.height*2, Interpolation::BILINEAR);
     float sigma_diff = std::sqrt(base_sigma*base_sigma - 1.0f);
-    // base_img = gaussian_blur(base_img, sigma_diff);
-    base_img = gaussian_blur_cuda(base_img, sigma_diff);
+    base_img = gaussian_blur(base_img, sigma_diff);
 
     int imgs_per_octave = scales_per_octave + 3;
 
@@ -49,7 +47,7 @@ ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min,
         pyramid.octaves[i].push_back(std::move(base_img));
         for (int j = 1; j < sigma_vals.size(); j++) {
             const Image& prev_img = pyramid.octaves[i].back();
-            pyramid.octaves[i].push_back(gaussian_blur_cuda(prev_img, sigma_vals[j]));
+            pyramid.octaves[i].push_back(gaussian_blur(prev_img, sigma_vals[j]));
         }
         // prepare base image for next octave
         const Image& next_base_img = pyramid.octaves[i][imgs_per_octave-3];
@@ -595,8 +593,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
 
     // Generate DoG pyramid
     auto dog_start = std::chrono::high_resolution_clock::now();
-    // ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(gaussian_pyramid);
-    ScaleSpacePyramid dog_pyramid = generate_dog_pyramid_cuda(gaussian_pyramid);
+    ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(gaussian_pyramid);
     auto dog_end = std::chrono::high_resolution_clock::now();
     auto dog_duration = std::chrono::duration_cast<std::chrono::duration<double>>(dog_end - dog_start).count();
     std::cout << "Generate DoG pyramid: " << dog_duration << "s\n";
@@ -693,8 +690,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors_omp(const Image& img, float
 
     // Generate gradient pyramid
     auto grad_start = std::chrono::high_resolution_clock::now();
-    // ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_omp(gaussian_pyramid);
-    ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_cuda(gaussian_pyramid);
+    ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid_omp(gaussian_pyramid);
     auto grad_end = std::chrono::high_resolution_clock::now();
     auto grad_duration = std::chrono::duration_cast<std::chrono::duration<double>>(grad_end - grad_start).count();
     std::cout << "Generate gradient pyramid: " << grad_duration << "s\n";

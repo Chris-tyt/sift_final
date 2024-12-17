@@ -109,5 +109,7 @@ Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
 
 ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid);
 
+ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr);
+
 } // namespace sift
 #endif
