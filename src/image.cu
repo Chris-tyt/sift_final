@@ -222,3 +222,49 @@ ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr) 
     return dog_pyr;
 }
 } // namespace sift
+
+__global__ void rgb_to_grayscale_kernel(const float* rgb, float* gray, int width, int height) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    
+    if (x < width && y < height) {
+        int idx = y * width + x;
+        float red = rgb[3 * idx];
+        float green = rgb[3 * idx + 1];
+        float blue = rgb[3 * idx + 2];
+        gray[idx] = 0.299f * red + 0.587f * green + 0.114f * blue;
+    }
+}
+
+Image rgb_to_grayscale_cuda(const Image& img) {
+    assert(img.channels == 3);
+    Image gray(img.width, img.height, 1);
+
+    // Allocate device memory
+    float *d_rgb, *d_gray;
+    size_t rgb_size = img.width * img.height * 3 * sizeof(float);
+    size_t gray_size = img.width * img.height * sizeof(float);
+    
+    cudaMalloc(&d_rgb, rgb_size);
+    cudaMalloc(&d_gray, gray_size);
+
+    // Copy RGB data to device
+    cudaMemcpy(d_rgb, img.data, rgb_size, cudaMemcpyHostToDevice);
+
+    // Set up grid and block dimensions
+    dim3 block(16, 16);
+    dim3 grid((img.width + block.x - 1) / block.x,
+              (img.height + block.y - 1) / block.y);
+
+    // Launch kernel
+    rgb_to_grayscale_kernel<<<grid, block>>>(d_rgb, d_gray, img.width, img.height);
+
+    // Copy result back to host
+    cudaMemcpy(gray.data, d_gray, gray_size, cudaMemcpyDeviceToHost);
+
+    // Clean up
+    cudaFree(d_rgb);
+    cudaFree(d_gray);
+
+    return gray;
+}
