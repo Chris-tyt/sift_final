@@ -9,4 +9,7 @@ Image rgb_to_grayscale_cuda(const Image& img);
 // CUDA高斯模糊函数声明
 Image gaussian_blur_cuda(const Image& img, float sigma);
 
+// Add this declaration to the header file
+void smooth_histogram_cuda(float* hist, int n_bins);
+
 #endif // IMAGE_HPP

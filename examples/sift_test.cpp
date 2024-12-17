@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
     std::cout << "Converting base image to grayscale if needed" << std::endl;
     
     std::cout << "Finding SIFT features in base image..." << std::endl;
-    std::vector<sift::Keypoint> base_kps = sift::find_keypoints_and_descriptors_omp(base_image);
+    std::vector<sift::Keypoint> base_kps = sift::find_keypoints_and_descriptors(base_image);
     std::cout << "Found " << base_kps.size() << " keypoints in base image" << std::endl;
 
     // 计算并输出基准图像处理时间
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
         // Timing SIFT feature extraction
         auto sift_start = std::chrono::high_resolution_clock::now();
         std::cout << "Finding SIFT features..." << std::endl;
-        std::vector<sift::Keypoint> kps = sift::find_keypoints_and_descriptors_omp(img);
+        std::vector<sift::Keypoint> kps = sift::find_keypoints_and_descriptors(img);
         auto sift_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> sift_duration = sift_end - sift_start;
         std::cout << "Found " << kps.size() << " keypoints in " << sift_duration.count() << "s" << std::endl;
