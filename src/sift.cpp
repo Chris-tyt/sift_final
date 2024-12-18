@@ -234,7 +234,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     if (img.channels == 1) {
         input = img;
     } else {
-        std::cout << "=================IN=================" << std::endl;
+        // std::cout << "=================IN=================" << std::endl;
         #pragma omp parallel for collapse(2) schedule(static)
         for (int x = 0; x < img.width; x++) {
             for (int y = 0; y < img.height; y++) {
