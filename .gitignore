@@ -4,3 +4,4 @@ build/
 bin/
 res/*
 !res/readme.md
+.vscode/
