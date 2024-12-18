@@ -307,6 +307,13 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
         }
     }
 
+    // ScaleSpacePyramid gaussian_pyramid = { 
+    //     num_octaves, 
+    //     gaussian_imgs_per_octave, 
+    //     gaussian_octaves 
+    // }; 
+    // dog_octaves = generate_dog_pyramid_cuda(gaussian_pyramid).octaves; 
+
     auto dog_end = std::chrono::high_resolution_clock::now();
     auto dog_duration = std::chrono::duration_cast<std::chrono::duration<double>>(dog_end - dog_start).count();
     std::cout << "Generate DoG pyramid: " << dog_duration << "s\n";
