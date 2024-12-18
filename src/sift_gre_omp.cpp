@@ -234,8 +234,6 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     if (img.channels == 1) {
         input = img;
     } else {
-        // std::cout << "=================IN=================" << std::endl;
-        #pragma omp parallel for collapse(2) schedule(static)
         for (int x = 0; x < img.width; x++) {
             for (int y = 0; y < img.height; y++) {
                 float red = img.get_pixel(x, y, 0);
@@ -294,25 +292,16 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     std::vector<std::vector<Image>> dog_octaves(num_octaves);
     int dog_imgs_per_octave = gaussian_imgs_per_octave - 1;
     
-    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < dog_octaves.size(); i++) {
         dog_octaves[i].reserve(dog_imgs_per_octave);
         for (int j = 1; j < gaussian_octaves[i].size(); j++) {
             Image diff = gaussian_octaves[i][j];
-            #pragma omp simd
             for (int pix_idx = 0; pix_idx < diff.size; pix_idx++) {
                 diff.data[pix_idx] -= gaussian_octaves[i][j-1].data[pix_idx];
             }
             dog_octaves[i].push_back(diff);
         }
     }
-
-    // ScaleSpacePyramid gaussian_pyramid = { 
-    //     num_octaves, 
-    //     gaussian_imgs_per_octave, 
-    //     gaussian_octaves 
-    // }; 
-    // dog_octaves = generate_dog_pyramid_cuda(gaussian_pyramid).octaves; 
 
     auto dog_end = std::chrono::high_resolution_clock::now();
     auto dog_duration = std::chrono::duration_cast<std::chrono::duration<double>>(dog_end - dog_start).count();
@@ -327,16 +316,32 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
 
     // Generate gradient pyramid ===============================================
     auto grad_start = std::chrono::high_resolution_clock::now();
+    std::vector<std::vector<Image>> grad_octaves(num_octaves);
+    int grad_imgs_per_octave = gaussian_imgs_per_octave;
     
-    // Replace the CPU gradient computation with CUDA implementation
-    ScaleSpacePyramid gaussian_pyramid = {
-        num_octaves,
-        gaussian_imgs_per_octave,
-        gaussian_octaves
-    };
-    
-    std::vector<std::vector<Image>> grad_octaves = generate_gradient_pyramid_cuda(gaussian_pyramid).octaves;
-    
+    #pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < gaussian_octaves.size(); i++) {
+        grad_octaves[i].reserve(grad_imgs_per_octave);
+        int width = gaussian_octaves[i][0].width;
+        int height = gaussian_octaves[i][0].height;
+        
+        for (int j = 0; j < gaussian_octaves[i].size(); j++) {
+            Image grad(width, height, 2);
+            
+            #pragma omp simd collapse(2)
+            for (int x = 1; x < grad.width-1; x++) {
+                for (int y = 1; y < grad.height-1; y++) {
+                    float gx = (gaussian_octaves[i][j].get_pixel(x+1, y, 0)
+                             -gaussian_octaves[i][j].get_pixel(x-1, y, 0)) * 0.5;
+                    float gy = (gaussian_octaves[i][j].get_pixel(x, y+1, 0)
+                             -gaussian_octaves[i][j].get_pixel(x, y-1, 0)) * 0.5;
+                    grad.set_pixel(x, y, 0, gx);
+                    grad.set_pixel(x, y, 1, gy);
+                }
+            }
+            grad_octaves[i].push_back(std::move(grad));
+        }
+    }
     auto grad_end = std::chrono::high_resolution_clock::now();
     auto grad_duration = std::chrono::duration_cast<std::chrono::duration<double>>(grad_end - grad_start).count();
     std::cout << "Generate gradient pyramid: " << grad_duration << "s\n";

@@ -1,4 +1,3 @@
-
 #ifndef SIFT_H
 #define SIFT_H
 
@@ -57,39 +56,10 @@ const float LAMBDA_DESC = 6;
 const float THRESH_ABSOLUTE = 350;
 const float THRESH_RELATIVE = 0.7;
 
-ScaleSpacePyramid generate_gaussian_pyramid(const Image& img, float sigma_min=SIGMA_MIN,
-                                            int num_octaves=N_OCT, int scales_per_octave=N_SPO);
-
-ScaleSpacePyramid generate_dog_pyramid(const ScaleSpacePyramid& img_pyramid);
-
-std::vector<Keypoint> find_keypoints(const ScaleSpacePyramid& dog_pyramid,
-                                     float contrast_thresh=C_DOG, float edge_thresh=C_EDGE);
-
-std::vector<Keypoint> find_keypoints_omp(const ScaleSpacePyramid& dog_pyramid,
-                                     float contrast_thresh=C_DOG, float edge_thresh=C_EDGE);
-
-ScaleSpacePyramid generate_gradient_pyramid(const ScaleSpacePyramid& pyramid);
-
-ScaleSpacePyramid generate_gradient_pyramid_omp(const ScaleSpacePyramid& pyramid);
-
-std::vector<float> find_keypoint_orientations(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
-                                              float lambda_ori=LAMBDA_ORI, float lambda_desc=LAMBDA_DESC);
-
-std::vector<float> find_keypoint_orientations_omp(Keypoint& kp, const ScaleSpacePyramid& grad_pyramid,
-                                              float lambda_ori=LAMBDA_ORI, float lambda_desc=LAMBDA_DESC);
-
-void compute_keypoint_descriptor(Keypoint& kp, float theta, const ScaleSpacePyramid& grad_pyramid,
-                                 float lambda_desc=LAMBDA_DESC);
+bool refine_or_discard_keypoint(Keypoint& kp, const std::vector<Image>& octave,
+                               float contrast_thresh, float edge_thresh);
 
 std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_min=SIGMA_MIN,
-                                                     int num_octaves=N_OCT, 
-                                                     int scales_per_octave=N_SPO, 
-                                                     float contrast_thresh=C_DOG,
-                                                     float edge_thresh=C_EDGE,
-                                                     float lambda_ori=LAMBDA_ORI,
-                                                     float lambda_desc=LAMBDA_DESC);
-
-std::vector<Keypoint> find_keypoints_and_descriptors_omp(const Image& img, float sigma_min=SIGMA_MIN,
                                                      int num_octaves=N_OCT, 
                                                      int scales_per_octave=N_SPO, 
                                                      float contrast_thresh=C_DOG,
@@ -106,6 +76,13 @@ Image draw_keypoints(const Image& img, const std::vector<Keypoint>& kps);
 
 Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
                    std::vector<Keypoint>& kps_b, std::vector<std::pair<int, int>> matches);
+
+ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid);
+
+ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr);
+
+std::vector<Keypoint> find_keypoints_cuda(const std::vector<std::vector<Image>>& dog_octaves,
+                                         float contrast_thresh, float edge_thresh);
 
 } // namespace sift
 #endif
