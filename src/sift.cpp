@@ -309,31 +309,7 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
 
     // Find keypoints =========================================================
     auto keypoints_start = std::chrono::high_resolution_clock::now();
-    
-    // Inline find_keypoints function content
-    std::vector<Keypoint> tmp_kps;
-    for (int i = 0; i < dog_octaves.size(); i++) {
-        const std::vector<Image>& octave = dog_octaves[i];
-        for (int j = 1; j < dog_imgs_per_octave-1; j++) {
-            const Image& img = octave[j];
-            for (int x = 1; x < img.width-1; x++) {
-                for (int y = 1; y < img.height-1; y++) {
-                    if (std::abs(img.get_pixel(x, y, 0)) < 0.8*contrast_thresh) {
-                        continue;
-                    }
-                    if (point_is_extremum(octave, j, x, y)) {
-                        Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
-                        bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh,
-                                                                      edge_thresh);
-                        if (kp_is_valid) {
-                            tmp_kps.push_back(kp);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
+    std::vector<Keypoint> tmp_kps = find_keypoints_cuda(dog_octaves, contrast_thresh, edge_thresh);
     auto keypoints_end = std::chrono::high_resolution_clock::now();
     auto keypoints_duration = std::chrono::duration_cast<std::chrono::duration<double>>(keypoints_end - keypoints_start).count();
     std::cout << "Find keypoints: " << keypoints_duration << "s\n";
@@ -373,151 +349,146 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     int orientation_count = 0;
     int total_orientations = 0;
     
-    for (Keypoint& kp_tmp : tmp_kps) {
-        // Inlined find_keypoint_orientations logic
-        float pix_dist = MIN_PIX_DIST * std::pow(2, kp_tmp.octave);
-        const Image& img_grad = grad_octaves[kp_tmp.octave][kp_tmp.scale];
-
-        // discard kp if too close to image borders 
-        float min_dist_from_border = std::min({kp_tmp.x, kp_tmp.y, 
-                                             pix_dist*img_grad.width-kp_tmp.x,
-                                             pix_dist*img_grad.height-kp_tmp.y});
-        if (min_dist_from_border <= std::sqrt(2)*lambda_desc*kp_tmp.sigma) {
-            continue;
-        }
-
-        float hist[N_BINS] = {};
-        float patch_sigma = lambda_ori * kp_tmp.sigma;
-        float patch_radius = 3 * patch_sigma;
-        int x_start = std::round((kp_tmp.x - patch_radius)/pix_dist);
-        int x_end = std::round((kp_tmp.x + patch_radius)/pix_dist);
-        int y_start = std::round((kp_tmp.y - patch_radius)/pix_dist);
-        int y_end = std::round((kp_tmp.y + patch_radius)/pix_dist);
-
-        // accumulate gradients in orientation histogram
-        for (int x = x_start; x <= x_end; x++) {
-            for (int y = y_start; y <= y_end; y++) {
-                float gx = img_grad.get_pixel(x, y, 0);
-                float gy = img_grad.get_pixel(x, y, 1);
-                float grad_norm = std::sqrt(gx*gx + gy*gy);
-                float weight = std::exp(-(std::pow(x*pix_dist-kp_tmp.x, 2)+std::pow(y*pix_dist-kp_tmp.y, 2))
-                                      /(2*patch_sigma*patch_sigma));
-                float theta = std::fmod(std::atan2(gy, gx)+2*M_PI, 2*M_PI);
-                int bin = (int)std::round(N_BINS/(2*M_PI)*theta) % N_BINS;
-                hist[bin] += weight * grad_norm;
-            }
-        }
-
-        smooth_histogram(hist);
-
-        // extract reference orientations
-        float ori_thresh = 0.8;
-        float ori_max = 0;
-        std::vector<float> orientations;
+    #pragma omp parallel
+    {
+        std::vector<Keypoint> local_kps;
         
-        for (int j = 0; j < N_BINS; j++) {
-            if (hist[j] > ori_max) {
-                ori_max = hist[j];
+        #pragma omp for reduction(+:orientation_count,total_orientations) schedule(dynamic)
+        for (size_t kp_idx = 0; kp_idx < tmp_kps.size(); kp_idx++) {
+            Keypoint& kp_tmp = tmp_kps[kp_idx];
+            float pix_dist = MIN_PIX_DIST * std::pow(2, kp_tmp.octave);
+            const Image& img_grad = grad_octaves[kp_tmp.octave][kp_tmp.scale];
+
+            // Border check
+            float min_dist_from_border = std::min({kp_tmp.x, kp_tmp.y, 
+                                                 pix_dist*img_grad.width-kp_tmp.x,
+                                                 pix_dist*img_grad.height-kp_tmp.y});
+            if (min_dist_from_border <= std::sqrt(2)*lambda_desc*kp_tmp.sigma) {
+                continue;
             }
-        }
-        
-        for (int j = 0; j < N_BINS; j++) {
-            if (hist[j] >= ori_thresh * ori_max) {
-                float prev = hist[(j-1+N_BINS)%N_BINS];
-                float next = hist[(j+1)%N_BINS];
-                if (prev > hist[j] || next > hist[j])
-                    continue;
-                float theta = 2*M_PI*(j+1)/N_BINS + M_PI/N_BINS*(prev-next)/(prev-2*hist[j]+next);
-                orientations.push_back(theta);
-            }
-        }
 
-        auto orient_end = std::chrono::high_resolution_clock::now();
-        orientation_count++;
-        total_orientations += orientations.size();
-        
-        for (float theta : orientations) {
-            Keypoint kp = kp_tmp;
-            
-            // Inlined compute_keypoint_descriptor implementation
-            float pix_dist = MIN_PIX_DIST * std::pow(2, kp.octave);
-            const Image& img_grad = grad_octaves[kp.octave][kp.scale];
-            float histograms[N_HIST][N_HIST][N_ORI] = {0};
+            // Orientation histogram computation
+            float hist[N_BINS] = {};
+            float patch_sigma = lambda_ori * kp_tmp.sigma;
+            float patch_radius = 3 * patch_sigma;
+            int x_start = std::round((kp_tmp.x - patch_radius)/pix_dist);
+            int x_end = std::round((kp_tmp.x + patch_radius)/pix_dist);
+            int y_start = std::round((kp_tmp.y - patch_radius)/pix_dist);
+            int y_end = std::round((kp_tmp.y + patch_radius)/pix_dist);
 
-            float half_size = std::sqrt(2)*lambda_desc*kp.sigma*(N_HIST+1.)/N_HIST;
-            int x_start = std::round((kp.x-half_size) / pix_dist);
-            int x_end = std::round((kp.x+half_size) / pix_dist);
-            int y_start = std::round((kp.y-half_size) / pix_dist);
-            int y_end = std::round((kp.y+half_size) / pix_dist);
-
-            float cos_t = std::cos(theta), sin_t = std::sin(theta);
-            float patch_sigma = lambda_desc * kp.sigma;
-
-            for (int m = x_start; m <= x_end; m++) {
-                for (int n = y_start; n <= y_end; n++) {
-                    float x = ((m*pix_dist - kp.x)*cos_t
-                              +(n*pix_dist - kp.y)*sin_t) / kp.sigma;
-                    float y = (-(m*pix_dist - kp.x)*sin_t
-                               +(n*pix_dist - kp.y)*cos_t) / kp.sigma;
-
-                    if (std::max(std::abs(x), std::abs(y)) > lambda_desc*(N_HIST+1.)/N_HIST)
-                        continue;
-
-                    float gx = img_grad.get_pixel(m, n, 0), gy = img_grad.get_pixel(m, n, 1);
-                    float theta_mn = std::fmod(std::atan2(gy, gx)-theta+4*M_PI, 2*M_PI);
-                    float grad_norm = std::sqrt(gx*gx + gy*gy);
-                    float weight = std::exp(-(std::pow(m*pix_dist-kp.x, 2)+std::pow(n*pix_dist-kp.y, 2))
-                                            /(2*patch_sigma*patch_sigma));
-                    float contribution = weight * grad_norm;
-
-                    // Inlined update_histograms implementation
-                    float x_i, y_j;
-                    for (int i = 1; i <= N_HIST; i++) {
-                        x_i = (i-(1+(float)N_HIST)/2) * 2*lambda_desc/N_HIST;
-                        if (std::abs(x_i-x) > 2*lambda_desc/N_HIST)
-                            continue;
-                        for (int j = 1; j <= N_HIST; j++) {
-                            y_j = (j-(1+(float)N_HIST)/2) * 2*lambda_desc/N_HIST;
-                            if (std::abs(y_j-y) > 2*lambda_desc/N_HIST)
-                                continue;
-                            
-                            float hist_weight = (1 - N_HIST*0.5/lambda_desc*std::abs(x_i-x))
-                                              *(1 - N_HIST*0.5/lambda_desc*std::abs(y_j-y));
-
-                            for (int k = 1; k <= N_ORI; k++) {
-                                float theta_k = 2*M_PI*(k-1)/N_ORI;
-                                float theta_diff = std::fmod(theta_k-theta_mn+2*M_PI, 2*M_PI);
-                                if (std::abs(theta_diff) >= 2*M_PI/N_ORI)
-                                    continue;
-                                float bin_weight = 1 - N_ORI*0.5/M_PI*std::abs(theta_diff);
-                                histograms[i-1][j-1][k-1] += hist_weight*bin_weight*contribution;
-                            }
-                        }
-                    }
+            // Pre-compute exp table for the patch
+            std::vector<std::vector<float>> weights((x_end-x_start+1), 
+                                                  std::vector<float>(y_end-y_start+1));
+            #pragma omp simd collapse(2)
+            for (int x = x_start; x <= x_end; x++) {
+                for (int y = y_start; y <= y_end; y++) {
+                    weights[x-x_start][y-y_start] = std::exp(
+                        -(std::pow(x*pix_dist-kp_tmp.x, 2)+std::pow(y*pix_dist-kp_tmp.y, 2))
+                        /(2*patch_sigma*patch_sigma));
                 }
             }
 
-            // Inlined hists_to_vec implementation
-            int size = N_HIST*N_HIST*N_ORI;
-            float *hist = reinterpret_cast<float *>(histograms);
-
-            float norm = 0;
-            for (int i = 0; i < size; i++) {
-                norm += hist[i] * hist[i];
-            }
-            norm = std::sqrt(norm);
-            float norm2 = 0;
-            for (int i = 0; i < size; i++) {
-                hist[i] = std::min(hist[i], 0.2f*norm);
-                norm2 += hist[i] * hist[i];
-            }
-            norm2 = std::sqrt(norm2);
-            for (int i = 0; i < size; i++) {
-                float val = std::floor(512*hist[i]/norm2);
-                kp.descriptor[i] = std::min((int)val, 255);
+            // Accumulate gradients
+            for (int x = x_start; x <= x_end; x++) {
+                for (int y = y_start; y <= y_end; y++) {
+                    float gx = img_grad.get_pixel(x, y, 0);
+                    float gy = img_grad.get_pixel(x, y, 1);
+                    float grad_norm = std::sqrt(gx*gx + gy*gy);
+                    float theta = std::fmod(std::atan2(gy, gx)+2*M_PI, 2*M_PI);
+                    int bin = (int)std::round(N_BINS/(2*M_PI)*theta) % N_BINS;
+                    hist[bin] += weights[x-x_start][y-y_start] * grad_norm;
+                }
             }
 
-            kps.push_back(kp);
+            smooth_histogram(hist);
+
+            // Find orientations
+            float ori_thresh = 0.8;
+            float ori_max = 0;
+            std::vector<float> orientations;
+            
+            #pragma omp simd reduction(max:ori_max)
+            for (int j = 0; j < N_BINS; j++) {
+                ori_max = std::max(ori_max, hist[j]);
+            }
+            
+            for (int j = 0; j < N_BINS; j++) {
+                if (hist[j] >= ori_thresh * ori_max) {
+                    float prev = hist[(j-1+N_BINS)%N_BINS];
+                    float next = hist[(j+1)%N_BINS];
+                    if (prev > hist[j] || next > hist[j])
+                        continue;
+                    float theta = 2*M_PI*(j+1)/N_BINS + M_PI/N_BINS*(prev-next)/(prev-2*hist[j]+next);
+                    orientations.push_back(theta);
+                }
+            }
+
+            orientation_count++;
+            total_orientations += orientations.size();
+            
+            // Process each orientation
+            for (float theta : orientations) {
+                Keypoint kp = kp_tmp;
+                float histograms[N_HIST][N_HIST][N_ORI] = {0};
+
+                float half_size = std::sqrt(2)*lambda_desc*kp.sigma*(N_HIST+1.)/N_HIST;
+                int x_start = std::round((kp.x-half_size) / pix_dist);
+                int x_end = std::round((kp.x+half_size) / pix_dist);
+                int y_start = std::round((kp.y-half_size) / pix_dist);
+                int y_end = std::round((kp.y+half_size) / pix_dist);
+
+                float cos_t = std::cos(theta), sin_t = std::sin(theta);
+                float patch_sigma = lambda_desc * kp.sigma;
+
+                // Pre-compute transformation matrices
+                std::vector<float> x_transformed((x_end-x_start+1) * (y_end-y_start+1));
+                std::vector<float> y_transformed((x_end-x_start+1) * (y_end-y_start+1));
+                std::vector<float> weights((x_end-x_start+1) * (y_end-y_start+1));
+                
+                #pragma omp simd collapse(2)
+                for (int m = x_start; m <= x_end; m++) {
+                    for (int n = y_start; n <= y_end; n++) {
+                        int idx = (m-x_start)*(y_end-y_start+1) + (n-y_start);
+                        x_transformed[idx] = ((m*pix_dist - kp.x)*cos_t
+                                            +(n*pix_dist - kp.y)*sin_t) / kp.sigma;
+                        y_transformed[idx] = (-(m*pix_dist - kp.x)*sin_t
+                                            +(n*pix_dist - kp.y)*cos_t) / kp.sigma;
+                        weights[idx] = std::exp(-(std::pow(m*pix_dist-kp.x, 2)+std::pow(n*pix_dist-kp.y, 2))
+                                                /(2*patch_sigma*patch_sigma));
+                    }
+                }
+
+                // Compute descriptor
+                for (int m = x_start; m <= x_end; m++) {
+                    for (int n = y_start; n <= y_end; n++) {
+                        int idx = (m-x_start)*(y_end-y_start+1) + (n-y_start);
+                        float x = x_transformed[idx];
+                        float y = y_transformed[idx];
+
+                        if (std::max(std::abs(x), std::abs(y)) > lambda_desc*(N_HIST+1.)/N_HIST)
+                            continue;
+
+                        float gx = img_grad.get_pixel(m, n, 0);
+                        float gy = img_grad.get_pixel(m, n, 1);
+                        float theta_mn = std::fmod(std::atan2(gy, gx)-theta+4*M_PI, 2*M_PI);
+                        float grad_norm = std::sqrt(gx*gx + gy*gy);
+                        float contribution = weights[idx] * grad_norm;
+
+                        // Update histograms
+                        update_histograms(histograms, x, y, contribution, theta_mn, lambda_desc);
+                    }
+                }
+
+                // Convert histograms to descriptor vector
+                hists_to_vec(histograms, kp.descriptor);
+                local_kps.push_back(kp);
+            }
+        }
+
+        // Merge local results
+        #pragma omp critical
+        {
+            kps.insert(kps.end(), local_kps.begin(), local_kps.end());
         }
     }
     auto loop_end = std::chrono::high_resolution_clock::now();

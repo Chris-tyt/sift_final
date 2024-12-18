@@ -267,6 +267,135 @@ ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr) 
     }
     return dog_pyr;
 }
+
+__global__ void check_contrast_and_extremum_kernel(const float* dog_image, const float* prev_image, 
+    const float* next_image, int width, int height, int* potential_keypoints, 
+    int* counter, float contrast_thresh) {
+    
+    int x = blockIdx.x * blockDim.x + threadIdx.x + 1;
+    int y = blockIdx.y * blockDim.y + threadIdx.y + 1;
+    
+    if (x >= width-1 || y >= height-1) return;
+    
+    int idx = y * width + x;
+    float val = dog_image[idx];
+    
+    // Early contrast threshold check
+    if (abs(val) < 0.8f * contrast_thresh) return;
+    
+    bool is_min = true, is_max = true;
+    
+    // Check against current, previous and next DoG images
+    for (int dx = -1; dx <= 1; dx++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            int curr_idx = (y + dy) * width + (x + dx);
+            
+            float prev_val = prev_image[curr_idx];
+            float next_val = next_image[curr_idx];
+            float curr_val = dog_image[curr_idx];
+            
+            if (prev_val > val || next_val > val || 
+                (curr_val > val && !(dx == 0 && dy == 0))) {
+                is_max = false;
+            }
+            if (prev_val < val || next_val < val || 
+                (curr_val < val && !(dx == 0 && dy == 0))) {
+                is_min = false;
+            }
+            
+            if (!is_min && !is_max) return;
+        }
+    }
+    
+    if (is_min || is_max) {
+        int insert_idx = atomicAdd(counter, 1);
+        potential_keypoints[insert_idx * 3] = x;
+        potential_keypoints[insert_idx * 3 + 1] = y;
+        potential_keypoints[insert_idx * 3 + 2] = (is_max ? 1 : -1); // Store extremum type
+    }
+}
+
+std::vector<Keypoint> find_keypoints_cuda(const std::vector<std::vector<Image>>& dog_octaves,
+                                         float contrast_thresh, float edge_thresh) {
+    std::vector<Keypoint> tmp_kps;
+    
+    // Allocate device memory for counter
+    int* d_counter;
+    cudaMalloc(&d_counter, sizeof(int));
+    
+    for (int i = 0; i < dog_octaves.size(); i++) {
+        const std::vector<Image>& octave = dog_octaves[i];
+        for (int j = 1; j < octave.size()-1; j++) {
+            const Image& curr_img = octave[j];
+            const Image& prev_img = octave[j-1];
+            const Image& next_img = octave[j+1];
+            
+            int width = curr_img.width;
+            int height = curr_img.height;
+            
+            // Allocate device memory
+            float *d_curr, *d_prev, *d_next;
+            cudaMalloc(&d_curr, width * height * sizeof(float));
+            cudaMalloc(&d_prev, width * height * sizeof(float));
+            cudaMalloc(&d_next, width * height * sizeof(float));
+            
+            // Copy data to device
+            cudaMemcpy(d_curr, curr_img.data, width * height * sizeof(float), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_prev, prev_img.data, width * height * sizeof(float), cudaMemcpyHostToDevice);
+            cudaMemcpy(d_next, next_img.data, width * height * sizeof(float), cudaMemcpyHostToDevice);
+            
+            // Reset counter
+            cudaMemset(d_counter, 0, sizeof(int));
+            
+            // Allocate memory for potential keypoints (x, y, extremum_type)
+            int max_keypoints = width * height; // Maximum possible keypoints
+            int* d_potential_keypoints;
+            cudaMalloc(&d_potential_keypoints, max_keypoints * 3 * sizeof(int));
+            
+            // Launch kernel
+            dim3 block(16, 16);
+            dim3 grid((width + block.x - 1) / block.x, 
+                     (height + block.y - 1) / block.y);
+            
+            check_contrast_and_extremum_kernel<<<grid, block>>>(
+                d_curr, d_prev, d_next, width, height,
+                d_potential_keypoints, d_counter, contrast_thresh);
+            
+            // Get number of detected keypoints
+            int num_keypoints;
+            cudaMemcpy(&num_keypoints, d_counter, sizeof(int), cudaMemcpyDeviceToHost);
+            
+            if (num_keypoints > 0) {
+                // Allocate host memory for keypoint coordinates
+                std::vector<int> keypoint_data(num_keypoints * 3);
+                cudaMemcpy(keypoint_data.data(), d_potential_keypoints, 
+                          num_keypoints * 3 * sizeof(int), cudaMemcpyDeviceToHost);
+                
+                // Process keypoints
+                for (int k = 0; k < num_keypoints; k++) {
+                    int x = keypoint_data[k * 3];
+                    int y = keypoint_data[k * 3 + 1];
+                    
+                    Keypoint kp = {x, y, i, j, -1, -1, -1, -1};
+                    bool kp_is_valid = refine_or_discard_keypoint(kp, octave, contrast_thresh, edge_thresh);
+                    if (kp_is_valid) {
+                        tmp_kps.push_back(kp);
+                    }
+                }
+            }
+            
+            // Cleanup
+            cudaFree(d_curr);
+            cudaFree(d_prev);
+            cudaFree(d_next);
+            cudaFree(d_potential_keypoints);
+        }
+    }
+    
+    cudaFree(d_counter);
+    return tmp_kps;
+}
+
 } // namespace sift
 
 __global__ void smooth_histogram_kernel(float* hist, float* tmp_hist, int n_bins) {

@@ -1,4 +1,3 @@
-
 #ifndef SIFT_H
 #define SIFT_H
 
@@ -57,6 +56,9 @@ const float LAMBDA_DESC = 6;
 const float THRESH_ABSOLUTE = 350;
 const float THRESH_RELATIVE = 0.7;
 
+bool refine_or_discard_keypoint(Keypoint& kp, const std::vector<Image>& octave,
+                               float contrast_thresh, float edge_thresh);
+
 std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sigma_min=SIGMA_MIN,
                                                      int num_octaves=N_OCT, 
                                                      int scales_per_octave=N_SPO, 
@@ -78,6 +80,9 @@ Image draw_matches(const Image& a, const Image& b, std::vector<Keypoint>& kps_a,
 ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid);
 
 ScaleSpacePyramid generate_dog_pyramid_cuda(const ScaleSpacePyramid& gauss_pyr);
+
+std::vector<Keypoint> find_keypoints_cuda(const std::vector<std::vector<Image>>& dog_octaves,
+                                         float contrast_thresh, float edge_thresh);
 
 } // namespace sift
 #endif
