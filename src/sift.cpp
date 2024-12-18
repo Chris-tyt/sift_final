@@ -234,6 +234,8 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     if (img.channels == 1) {
         input = img;
     } else {
+        std::cout << "=================IN=================" << std::endl;
+        #pragma omp parallel for collapse(2) schedule(static)
         for (int x = 0; x < img.width; x++) {
             for (int y = 0; y < img.height; y++) {
                 float red = img.get_pixel(x, y, 0);
@@ -292,10 +294,12 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
     std::vector<std::vector<Image>> dog_octaves(num_octaves);
     int dog_imgs_per_octave = gaussian_imgs_per_octave - 1;
     
+    #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < dog_octaves.size(); i++) {
         dog_octaves[i].reserve(dog_imgs_per_octave);
         for (int j = 1; j < gaussian_octaves[i].size(); j++) {
             Image diff = gaussian_octaves[i][j];
+            #pragma omp simd
             for (int pix_idx = 0; pix_idx < diff.size; pix_idx++) {
                 diff.data[pix_idx] -= gaussian_octaves[i][j-1].data[pix_idx];
             }

@@ -13,11 +13,14 @@ __global__ void rgb_to_grayscale_kernel(const float* rgb, float* gray, int width
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     
     if (x < width && y < height) {
-        int idx = y * width + x;
-        float red = rgb[3 * idx];
-        float green = rgb[3 * idx + 1];
-        float blue = rgb[3 * idx + 2];
-        gray[idx] = 0.299f * red + 0.587f * green + 0.114f * blue;
+        int rgb_idx = y * width * 3 + x * 3;
+        int gray_idx = y * width + x;
+        
+        float red = rgb[rgb_idx];
+        float green = rgb[rgb_idx + 1];
+        float blue = rgb[rgb_idx + 2];
+        
+        gray[gray_idx] = 0.299f * red + 0.587f * green + 0.114f * blue;
     }
 }
 
@@ -33,8 +36,18 @@ Image rgb_to_grayscale_cuda(const Image& img) {
     cudaMalloc(&d_rgb, rgb_size);
     cudaMalloc(&d_gray, gray_size);
 
+    // Prepare RGB data in the correct format
+    std::vector<float> rgb_data(img.width * img.height * 3);
+    for (int y = 0; y < img.height; y++) {
+        for (int x = 0; x < img.width; x++) {
+            for (int c = 0; c < 3; c++) {
+                rgb_data[y * img.width * 3 + x * 3 + c] = img.get_pixel(x, y, c);
+            }
+        }
+    }
+
     // Copy RGB data to device
-    cudaMemcpy(d_rgb, img.data, rgb_size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_rgb, rgb_data.data(), rgb_size, cudaMemcpyHostToDevice);
 
     // Set up grid and block dimensions
     dim3 block(16, 16);

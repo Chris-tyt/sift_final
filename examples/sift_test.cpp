@@ -101,8 +101,8 @@ int main(int argc, char *argv[])
         Image img(image_path);
         std::cout << "Image loaded, dimensions: " << img.width << "x" << img.height << std::endl;
         
-        img = img.channels == 1 ? img : rgb_to_grayscale(img);
-        std::cout << "Converting to grayscale if needed" << std::endl;
+        // img = img.channels == 1 ? img : rgb_to_grayscale(img);
+        // std::cout << "Converting to grayscale if needed" << std::endl;
         
         // Timing SIFT feature extraction
         auto sift_start = std::chrono::high_resolution_clock::now();
