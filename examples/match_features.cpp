@@ -128,18 +128,18 @@ int main(int argc, char *argv[])
         std::cout << "Total image processing time: " << img_duration.count() << "s" << std::endl;
     }
 
-    std::cout << "\nSorting results by number of matches..." << std::endl;
-    std::sort(matches_count.begin(), matches_count.end(), std::greater<>());
-
-    // Write results to file
-    std::string output_filename = "res/matching_list.txt";
-    std::ofstream output_file(output_filename);
-    if (!output_file.is_open()) {
-        std::cerr << "Failed to create output file: " << output_filename << std::endl;
-        return 1;
-    }
-
     if (mode == "test") {
+        std::cout << "\nSorting results by number of matches..." << std::endl;
+        std::sort(matches_count.begin(), matches_count.end(), std::greater<>());
+        
+        // Write results to file
+        std::string output_filename = "res/matching_list.txt";
+        std::ofstream output_file(output_filename);
+        if (!output_file.is_open()) {
+            std::cerr << "Failed to create output file: " << output_filename << std::endl;
+            return 1;
+        }
+
         std::cout << "\nWriting results to " << output_filename << "..." << std::endl;
         for (const auto& [count, path] : matches_count) {
             output_file << path << " " << count << "\n";

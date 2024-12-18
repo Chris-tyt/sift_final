@@ -451,60 +451,30 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
                                                      float contrast_thresh, float edge_thresh, 
                                                      float lambda_ori, float lambda_desc)
 {
-    std::cout << "================= detail time of findkeypoints =================" << std::endl;
     assert(img.channels == 1 || img.channels == 3);
-    auto total_start = std::chrono::high_resolution_clock::now();
 
     // RGB to Grayscale conversion (if needed)
-    auto rgb_start = std::chrono::high_resolution_clock::now();
     const Image& input = img.channels == 1 ? img : rgb_to_grayscale(img);
-    auto rgb_end = std::chrono::high_resolution_clock::now();
-    auto rgb_duration = std::chrono::duration_cast<std::chrono::duration<double>>(rgb_end - rgb_start).count();
-    std::cout << "RGB to Grayscale: " << rgb_duration << "s\n";
 
     // Generate Gaussian pyramid
-    auto gaussian_start = std::chrono::high_resolution_clock::now();
     ScaleSpacePyramid gaussian_pyramid = generate_gaussian_pyramid(input, sigma_min, num_octaves,
                                                                    scales_per_octave);
-    auto gaussian_end = std::chrono::high_resolution_clock::now();
-    auto gaussian_duration = std::chrono::duration_cast<std::chrono::duration<double>>(gaussian_end - gaussian_start).count();
-    std::cout << "Generate Gaussian pyramid: " << gaussian_duration << "s\n";
 
     // Generate DoG pyramid
-    auto dog_start = std::chrono::high_resolution_clock::now();
     ScaleSpacePyramid dog_pyramid = generate_dog_pyramid(gaussian_pyramid);
-    auto dog_end = std::chrono::high_resolution_clock::now();
-    auto dog_duration = std::chrono::duration_cast<std::chrono::duration<double>>(dog_end - dog_start).count();
-    std::cout << "Generate DoG pyramid: " << dog_duration << "s\n";
 
     // Find keypoints
-    auto keypoints_start = std::chrono::high_resolution_clock::now();
     std::vector<Keypoint> tmp_kps = find_keypoints(dog_pyramid, contrast_thresh, edge_thresh);
-    auto keypoints_end = std::chrono::high_resolution_clock::now();
-    auto keypoints_duration = std::chrono::duration_cast<std::chrono::duration<double>>(keypoints_end - keypoints_start).count();
-    std::cout << "Find keypoints: " << keypoints_duration << "s\n";
 
     // Generate gradient pyramid
-    auto grad_start = std::chrono::high_resolution_clock::now();
     ScaleSpacePyramid grad_pyramid = generate_gradient_pyramid(gaussian_pyramid);
-    auto grad_end = std::chrono::high_resolution_clock::now();
-    auto grad_duration = std::chrono::duration_cast<std::chrono::duration<double>>(grad_end - grad_start).count();
-    std::cout << "Generate gradient pyramid: " << grad_duration << "s\n";
     
     std::vector<Keypoint> kps;
     
     // Process keypoints loop
-    auto loop_start = std::chrono::high_resolution_clock::now();
-    int orientation_count = 0;
-    int total_orientations = 0;
-    
     for (Keypoint& kp_tmp : tmp_kps) {
-        auto orient_start = std::chrono::high_resolution_clock::now();
         std::vector<float> orientations = find_keypoint_orientations(kp_tmp, grad_pyramid,
                                                                      lambda_ori, lambda_desc);
-        auto orient_end = std::chrono::high_resolution_clock::now();
-        orientation_count++;
-        total_orientations += orientations.size();
         
         for (float theta : orientations) {
             Keypoint kp = kp_tmp;
@@ -512,19 +482,6 @@ std::vector<Keypoint> find_keypoints_and_descriptors(const Image& img, float sig
             kps.push_back(kp);
         }
     }
-    auto loop_end = std::chrono::high_resolution_clock::now();
-    auto loop_duration = std::chrono::duration_cast<std::chrono::duration<double>>(loop_end - loop_start).count();
-    
-    std::cout << "Keypoint processing loop:\n";
-    std::cout << "  Total keypoints processed: " << orientation_count << "\n";
-    std::cout << "  Total orientations found: " << total_orientations << "\n";
-    std::cout << "  Average time per keypoint: " << loop_duration / orientation_count << "s\n";
-    std::cout << "  Total loop time: " << loop_duration << "s\n";
-
-    auto total_end = std::chrono::high_resolution_clock::now();
-    auto total_duration = std::chrono::duration_cast<std::chrono::duration<double>>(total_end - total_start).count();
-    std::cout << "Total execution time: " << total_duration << "s\n";
-    std::cout << "================================================================" << std::endl;
 
     return kps;
 }

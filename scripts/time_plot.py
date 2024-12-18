@@ -2,7 +2,7 @@ import subprocess
 import matplotlib.pyplot as plt
 
 # List of image counts to test
-image_counts = [1,2,3,4,5]  # Example values, adjust as needed
+image_counts = [1,3,6,10,15,30,60,100]  # Example values, adjust as needed
 
 scales = []
 times = []
