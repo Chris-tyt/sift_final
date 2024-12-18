@@ -147,22 +147,27 @@ Image gaussian_blur_cuda(const Image& img, float sigma)
 } 
 
 
-__global__ void compute_gradient_kernel(const float *input, float *output, int width, int height)
-{
+__global__ void compute_gradient_kernel(const float* input, float* output_gx, float* output_gy, 
+                                      int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
-
+    
     if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
-        float gx = 0.5f * (input[y*width + (x+1)] - input[y*width + (x-1)]);
-        float gy = 0.5f * (input[(y+1)*width + x] - input[(y-1)*width + x]);
-
-        // output前一半存gx，后一半存gy
-        output[y*width + x] = gx;  
-        output[width*height + y*width + x] = gy;
-    } else if (x < width && y < height) {
-        // 边界处可设为0或保持默认值
-        output[y*width + x] = 0.0f;
-        output[width*height + y*width + x] = 0.0f;
+        int idx = y * width + x;
+        
+        // Compute x gradient
+        float gx = 0.5f * (input[idx + 1] - input[idx - 1]);
+        output_gx[idx] = gx;
+        
+        // Compute y gradient
+        float gy = 0.5f * (input[(y + 1) * width + x] - input[(y - 1) * width + x]);
+        output_gy[idx] = gy;
+    }
+    else if (x < width && y < height) {
+        // Handle border pixels
+        int idx = y * width + x;
+        output_gx[idx] = 0.0f;
+        output_gy[idx] = 0.0f;
     }
 }
 
@@ -176,50 +181,59 @@ __global__ void dog_kernel(const float* img1, const float* img2, float* out, int
 
 namespace sift {
 
-ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid)
-{
+ScaleSpacePyramid generate_gradient_pyramid_cuda(const ScaleSpacePyramid& pyramid) {
     ScaleSpacePyramid grad_pyramid = {
         pyramid.num_octaves,
         pyramid.imgs_per_octave,
         std::vector<std::vector<Image>>(pyramid.num_octaves)
     };
 
-    // 为每张图像分配GPU内存进行处理
-    for (int i = 0; i < pyramid.num_octaves; i++) {
-        grad_pyramid.octaves[i].reserve(pyramid.imgs_per_octave);
-        for (int j = 0; j < pyramid.imgs_per_octave; j++) {
-            const Image& in_img = pyramid.octaves[i][j];
-            int width = in_img.width;
-            int height = in_img.height;
-            assert(in_img.channels == 1);
-
-            Image grad(width, height, 2);
-
-            float *d_input, *d_output;
+    // Process each octave
+    for (int octave = 0; octave < pyramid.num_octaves; octave++) {
+        grad_pyramid.octaves[octave].reserve(pyramid.imgs_per_octave);
+        
+        // Process each image in the octave
+        for (int scale = 0; scale < pyramid.imgs_per_octave; scale++) {
+            const Image& input = pyramid.octaves[octave][scale];
+            int width = input.width;
+            int height = input.height;
+            
+            // Allocate device memory
+            float *d_input, *d_gx, *d_gy;
             size_t img_size = width * height * sizeof(float);
+            
             cudaMalloc(&d_input, img_size);
-            cudaMalloc(&d_output, img_size * 2); // 两个通道
-
-            // 复制输入数据到GPU
-            cudaMemcpy(d_input, in_img.data, img_size, cudaMemcpyHostToDevice);
-
-            dim3 block(32,8);
-            dim3 grid((width + block.x - 1)/block.x, (height + block.y - 1)/block.y);
-
-            compute_gradient_kernel<<<grid, block>>>(d_input, d_output, width, height);
-            cudaDeviceSynchronize();
-
-            // 拷贝结果回CPU
-            cudaMemcpy(grad.data, d_output, img_size*2, cudaMemcpyDeviceToHost);
-
-            // 释放GPU内存
+            cudaMalloc(&d_gx, img_size);
+            cudaMalloc(&d_gy, img_size);
+            
+            // Copy input to device
+            cudaMemcpy(d_input, input.data, img_size, cudaMemcpyHostToDevice);
+            
+            // Set up grid and block dimensions
+            dim3 block(16, 16);
+            dim3 grid((width + block.x - 1) / block.x, 
+                     (height + block.y - 1) / block.y);
+            
+            // Launch kernel
+            compute_gradient_kernel<<<grid, block>>>(d_input, d_gx, d_gy, width, height);
+            
+            // Create output image with 2 channels (gx, gy)
+            Image grad(width, height, 2);
+            
+            // Copy results back to host
+            cudaMemcpy(grad.data, d_gx, img_size, cudaMemcpyDeviceToHost);
+            cudaMemcpy(grad.data + width * height, d_gy, img_size, cudaMemcpyDeviceToHost);
+            
+            // Add to gradient pyramid
+            grad_pyramid.octaves[octave].push_back(std::move(grad));
+            
+            // Clean up device memory
             cudaFree(d_input);
-            cudaFree(d_output);
-
-            grad_pyramid.octaves[i].push_back(grad);
+            cudaFree(d_gx);
+            cudaFree(d_gy);
         }
     }
-
+    
     return grad_pyramid;
 }
 
